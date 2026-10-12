@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PRESS MONITOR — 管理者用マスタ管理</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800;900&family=Noto+Sans+JP:wght@500;700;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="style.css">
+
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: { sans: ['Noto Sans JP', 'Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+      colors: { ink: '#0a0e14', panel: '#121824', panel2: '#1a2233', line: '#26314a' }
+    }
+  }
+}
+</script>
+<style>
+  html, body { background: #05070c; min-height: 100vh; overflow-y: auto; }
+  body { -webkit-user-select: text; user-select: text; }
+  * { -webkit-tap-highlight-color: transparent; }
+</style>
+</head>
+
+<body class="bg-ink text-slate-100 font-sans p-4 sm:p-8">
+<div class="max-w-3xl mx-auto flex flex-col gap-5 pb-16">
+
+  <header class="flex items-center gap-3 border-b border-line pb-4">
+    <div class="bg-emerald-500/15 p-2.5 rounded-xl text-emerald-400"><i class="fa-solid fa-user-shield text-xl"></i></div>
+    <div>
+      <h1 class="text-lg font-black text-white">PRESS MONITOR — 管理者用マスタ管理</h1>
+      <p class="text-[11px] text-slate-500 font-bold">品番・作業員マスタをExcelファイルからクラウドへ反映します（このページのURLは第三者に共有しないでください）</p>
+    </div>
+  </header>
+
+  <!-- クラウド接続設定 -->
+  <section class="bg-panel2 border border-line rounded-2xl p-4">
+    <h2 class="text-sm font-black text-emerald-400 mb-3 flex items-center gap-2"><i class="fa-solid fa-cloud"></i>クラウド接続設定</h2>
+    <label class="text-[11px] text-slate-400 block mb-1">Web App URL（iPadアプリの設定画面と同じものを入力してください）</label>
+    <div class="flex gap-2 mb-2">
+      <input type="text" id="gas-url" placeholder="https://script.google.com/macros/s/xxxx/exec" class="field flex-1 p-2 text-xs font-mono">
+      <button onclick="testConnection()" class="bg-panel border border-line hover:bg-slate-700 text-slate-200 px-4 rounded-xl text-xs font-bold whitespace-nowrap">接続テスト</button>
+    </div>
+    <p id="conn-result" class="text-[11px] text-slate-500"></p>
+  </section>
+
+  <!-- 現在のマスタ状況 -->
+  <section class="bg-panel2 border border-line rounded-2xl p-4">
+    <div class="flex justify-between items-center mb-2">
+      <h2 class="text-sm font-black text-slate-200 flex items-center gap-2"><i class="fa-solid fa-database text-emerald-400"></i>現在クラウドにあるマスタ</h2>
+      <button onclick="loadCurrentMasters()" class="text-[11px] text-emerald-400 font-bold"><i class="fa-solid fa-rotate mr-1"></i>状況を確認</button>
+    </div>
+    <p id="current-master-status" class="text-[11px] text-slate-500">「状況を確認」を押すと、現在クラウドにある品番・作業員・停止理由マスタの件数を表示します。</p>
+  </section>
+
+  <!-- 品番マスタアップロード -->
+  <section class="bg-panel2 border border-line rounded-2xl p-4">
+    <h2 class="text-sm font-black text-emerald-400 mb-1 flex items-center gap-2"><i class="fa-solid fa-cubes"></i>① 品番・SPMマスタの更新</h2>
+    <p class="text-[11px] text-slate-500 mb-3">品番マスタのExcelファイル（.xlsx）を選択してください。品番の列とSPMの列は、下の画面で選び直せます。</p>
+
+    <input type="file" id="part-file-input" accept=".xlsx,.xls" class="field w-full p-2 text-xs mb-3">
+
+    <div id="part-mapping-box" class="hidden flex flex-col gap-3">
+      <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <div>
+          <label class="text-[10px] text-slate-400 block mb-1">シート</label>
+          <select id="part-sheet-select" class="field w-full p-1.5 text-xs"></select>
+        </div>
+        <div>
+          <label class="text-[10px] text-emerald-400 block mb-1 font-bold">品番の列</label>
+          <select id="part-col-select" class="field w-full p-1.5 text-xs"></select>
+        </div>
+        <div>
+          <label class="text-[10px] text-amber-400 block mb-1 font-bold">SPMの列</label>
+          <select id="spm-col-select" class="field w-full p-1.5 text-xs"></select>
+        </div>
+        <div>
+          <label class="text-[10px] text-sky-400 block mb-1 font-bold">工程名の列（任意）</label>
+          <select id="process-col-select" class="field w-full p-1.5 text-xs"></select>
+        </div>
+        <div>
+          <label class="text-[10px] text-purple-300 block mb-1 font-bold">充当機の列（任意）</label>
+          <select id="machine-col-select" class="field w-full p-1.5 text-xs"></select>
+        </div>
+      </div>
+      <p class="text-[10px] text-slate-500 -mt-1">工程名が「プレス」の品番だけが、現場iPadの部品番号の候補になります。充当機の列があれば、選択中の設備に充当された品番に絞り込まれます（列名が変わっても、ここで選び直せます）。</p>
+
+      <div class="overflow-auto max-h-[200px] rounded-lg border border-line">
+        <table class="w-full text-[11px]" id="part-preview-table"></table>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button onclick="uploadPartMaster()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2">
+          <i class="fa-solid fa-cloud-arrow-up"></i>このマスタをクラウドへ反映する
+        </button>
+        <span id="part-upload-result" class="text-[11px] text-slate-500"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 作業員マスタアップロード -->
+  <section class="bg-panel2 border border-line rounded-2xl p-4">
+    <h2 class="text-sm font-black text-emerald-400 mb-1 flex items-center gap-2"><i class="fa-solid fa-users-gear"></i>② 作業員マスタの更新</h2>
+    <p class="text-[11px] text-slate-500 mb-3">作業員マスタのExcelファイル（.xlsx）を選択してください。作業員名が入っている列を選びます。</p>
+
+    <input type="file" id="op-file-input" accept=".xlsx,.xls" class="field w-full p-2 text-xs mb-3">
+
+    <div id="op-mapping-box" class="hidden flex flex-col gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div>
+          <label class="text-[10px] text-slate-400 block mb-1">シート</label>
+          <select id="op-sheet-select" class="field w-full p-1.5 text-xs"></select>
+        </div>
+        <div>
+          <label class="text-[10px] text-emerald-400 block mb-1 font-bold">作業員名の列</label>
+          <select id="op-col-select" class="field w-full p-1.5 text-xs"></select>
+        </div>
+      </div>
+
+      <div class="overflow-auto max-h-[200px] rounded-lg border border-line">
+        <table class="w-full text-[11px]" id="op-preview-table"></table>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button onclick="uploadOperatorMaster()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2">
+          <i class="fa-solid fa-cloud-arrow-up"></i>このマスタをクラウドへ反映する
+        </button>
+        <span id="op-upload-result" class="text-[11px] text-slate-500"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 停止理由マスタアップロード -->
+  <section class="bg-panel2 border border-line rounded-2xl p-4">
+    <h2 class="text-sm font-black text-emerald-400 mb-1 flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation"></i>③ 停止理由マスタの更新</h2>
+    <p class="text-[11px] text-slate-500 mb-3">停止理由カテゴリのExcelファイル（.xlsx）を選択してください。カテゴリ名が入っている列を選びます。</p>
+
+    <input type="file" id="reason-file-input" accept=".xlsx,.xls" class="field w-full p-2 text-xs mb-3">
+
+    <div id="reason-mapping-box" class="hidden flex flex-col gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div>
+          <label class="text-[10px] text-slate-400 block mb-1">シート</label>
+          <select id="reason-sheet-select" class="field w-full p-1.5 text-xs"></select>
+        </div>
+        <div>
+          <label class="text-[10px] text-emerald-400 block mb-1 font-bold">停止理由カテゴリの列</label>
+          <select id="reason-col-select" class="field w-full p-1.5 text-xs"></select>
+        </div>
+      </div>
+
+      <div class="overflow-auto max-h-[200px] rounded-lg border border-line">
+        <table class="w-full text-[11px]" id="reason-preview-table"></table>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button onclick="uploadStopReasonMaster()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2">
+          <i class="fa-solid fa-cloud-arrow-up"></i>このマスタをクラウドへ反映する
+        </button>
+        <span id="reason-upload-result" class="text-[11px] text-slate-500"></span>
+      </div>
+    </div>
+  </section>
+
+  <p class="text-[10px] text-slate-600 text-center leading-relaxed">
+    アップロードすると、クラウド上の該当マスタは今回の内容で完全に置き換わります（追記ではありません）。<br>
+    反映後、各iPadは自動的に（または設定画面の「マスタを再取得」で）最新の内容を取得します。
+  </p>
+</div>
+
+<script src="config.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>

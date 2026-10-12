@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PRESS MONITOR — ライン長向け閲覧画面</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800;900&family=Noto+Sans+JP:wght@500;700;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Noto Sans JP', 'Inter', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+      },
+      colors: {
+        ink: '#0a0e14',
+        panel: '#121824',
+        panel2: '#1a2233',
+        line: '#26314a',
+        amber: { 450: '#f2a93c' }
+      }
+    }
+  }
+}
+</script>
+<style>
+  html, body { background: #05070c; }
+  body { -webkit-user-select: text; user-select: text; }
+  * { -webkit-tap-highlight-color: transparent; }
+</style>
+</head>
+
+<body class="bg-ink text-slate-100 font-sans min-h-screen p-3 sm:p-5">
+<div class="max-w-[1400px] mx-auto flex flex-col gap-3">
+
+  <!-- ===== ヘッダー ===== -->
+  <header class="flex justify-between items-center flex-wrap gap-2 border-b border-line pb-3">
+    <div class="flex items-center gap-2.5">
+      <div class="bg-emerald-500/15 p-2 rounded-xl text-emerald-400"><i class="fa-solid fa-users-viewfinder text-lg"></i></div>
+      <div>
+        <h1 class="text-base sm:text-lg font-black text-white">PRESS MONITOR — ライン長向け閲覧画面</h1>
+        <p class="text-[10px] sm:text-[11px] text-slate-500 font-bold">クラウド上に蓄積された全ラインのデータを、日報・履歴画面と同じ見た目で参照できます（このページのURLは第三者に共有しないでください）</p>
+      </div>
+    </div>
+    <div id="cloud-status" class="bg-black/40 border border-line rounded-lg px-2.5 py-1 text-[10px] font-bold text-slate-500 flex items-center gap-1.5">
+      <i class="fa-solid fa-circle-notch text-slate-600"></i><span id="cloud-status-text">クラウド未接続</span>
+    </div>
+  </header>
+
+  <!-- ===== クラウド接続設定 ===== -->
+  <section class="bg-panel2 border border-line rounded-2xl p-3">
+    <h2 class="text-xs font-black text-emerald-400 mb-2 flex items-center gap-2"><i class="fa-solid fa-cloud"></i>クラウド接続設定</h2>
+    <div class="flex gap-2 items-center flex-wrap">
+      <input type="text" id="gas-url" placeholder="https://script.google.com/macros/s/xxxx/exec" class="field flex-1 min-w-[260px] p-2 text-xs font-mono">
+      <button onclick="testConnection()" class="bg-panel border border-line hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap">接続テスト</button>
+    </div>
+    <p id="conn-result" class="text-[11px] text-slate-500 mt-1.5"></p>
+  </section>
+
+  <!-- ===== ライン（設備）選択 ===== -->
+  <section class="flex justify-between items-center flex-wrap gap-2">
+    <div class="flex items-center gap-2 flex-wrap">
+      <div class="bg-black/40 border border-line rounded-lg px-2.5 py-1.5 text-xs text-slate-400 flex items-center gap-1.5">
+        <i class="fa-solid fa-gears text-emerald-400 text-[11px]"></i><span class="font-bold text-[11px]">ライン（設備）:</span>
+        <select id="line-select" class="bg-panel2 border border-line text-emerald-400 font-bold rounded px-1.5 py-0.5 text-xs"></select>
+      </div>
+      <button class="bg-emerald-700 hover:bg-emerald-600 text-white border border-emerald-500 px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 active:scale-95 transition-all" onclick="loadLineData()">
+        <i class="fa-solid fa-rotate text-[11px]"></i><span>データを取得・更新</span>
+      </button>
+      <p class="text-[10px] text-slate-500">「全ライン（比較用）」を選ぶと、他のラインと横並びで比較できます</p>
+    </div>
+    <div id="summary-box" class="bg-black/40 border border-line rounded-lg px-3 py-1.5 text-[11px] text-slate-400 hidden">
+      表示件数: <span id="summary-count" class="text-white font-bold">0</span>件　／
+      総生産数: <span id="summary-total" class="text-white font-bold">0</span>pcs　／
+      平均性能稼働率: <span id="summary-rate" class="text-emerald-400 font-bold">0.0</span>%
+    </div>
+  </section>
+
+  <!-- ===== 履歴テーブル（日報・履歴画面と同じ見た目） ===== -->
+  <div class="flex-1 overflow-auto rounded-xl border border-line bg-black/30" style="max-height: 72vh;">
+    <table class="w-full text-left text-xs border-collapse" id="line-history-table">
+      <thead>
+        <tr class="bg-panel2 text-slate-400 border-b border-line sticky top-0 z-10">
+          <th class="p-2 font-bold">日付</th>
+          <th class="p-2 font-bold text-sky-300">ライン（設備）</th>
+          <th class="p-2 font-bold text-amber-400">作業員</th>
+          <th class="p-2 font-bold text-center text-amber-200">人数</th>
+          <th class="p-2 font-bold text-emerald-400">部品番号</th>
+          <th class="p-2 font-bold">開始</th>
+          <th class="p-2 font-bold">終了</th>
+          <th class="p-2 font-bold text-white">生産数</th>
+          <th class="p-2 font-bold text-rose-300">不良数</th>
+          <th class="p-2 font-bold text-amber-300">材料交換</th>
+          <th class="p-2 font-bold text-purple-300">スクラップ</th>
+          <th class="p-2 font-bold text-rose-300">異常停止件数</th>
+          <th class="p-2 font-bold">稼働時間</th>
+          <th class="p-2 font-bold text-amber-500">金型交換</th>
+          <th class="p-2 font-bold text-sky-400">計画停止</th>
+          <th class="p-2 font-bold text-rose-500">異常停止</th>
+          <th class="p-2 font-bold text-emerald-400 text-right">稼働率</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line" id="line-history-body">
+        <tr><td colspan="17" class="p-6 text-center text-slate-500 font-bold">ラインを選択し「データを取得・更新」を押してください。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="text-[10px] text-slate-600 text-center leading-relaxed pb-4">
+    表示されるデータは、iPad側からクラウドへ保存された「日報の全体データ」を元に、ラインごとへ自動で振り分けられたものです。<br>
+    更新タイミングはダッシュボードの自動更新と同じです（管理者がスプレッドシートの「PRESS MONITOR」メニューから更新、または1時間ごとの自動更新）。
+  </p>
+</div>
+
+<script src="config.js"></script>
+<script src="line-leader.js"></script>
+</body>
+</html>
