@@ -14,10 +14,12 @@ window.onload = function () {
   document.getElementById('gas-url').addEventListener('change', (e) => {
     saveLineLeaderSettings({ gasUrl: e.target.value.trim() });
     updateCloudStatus();
+    loadEquipmentOptions();
   });
 
   renderLineOptions();
   updateCloudStatus();
+  loadEquipmentOptions();
 };
 
 /* ---------- 設定の保存（このブラウザ内のみ） ---------- */
@@ -51,11 +53,33 @@ function updateCloudStatus() {
 }
 
 /* ---------- ライン（設備）選択肢 ---------- */
+let lineEquipmentList = null; // クラウドの設備マスタから取得した設備名
 function renderLineOptions() {
   const select = document.getElementById('line-select');
-  const equipmentList = (typeof DEFAULT_SETTINGS !== 'undefined' && DEFAULT_SETTINGS.equipmentList) || [];
+  const prev = select.value;
+  let equipmentList = lineEquipmentList;
+  if (!equipmentList) { // 未取得の間は、iPadアプリが保存したマスタのキャッシュ → 予備の初期値の順に使う
+    try {
+      const m = JSON.parse(localStorage.getItem(STORAGE.MASTERS) || 'null');
+      if (m && Array.isArray(m.equipments) && m.equipments.length > 0) equipmentList = m.equipments;
+    } catch (e) {}
+  }
+  if (!equipmentList) equipmentList = (typeof DEFAULT_SETTINGS !== 'undefined' && DEFAULT_SETTINGS.equipmentList) || [];
   const options = [ALL_LINES_OPTION].concat(equipmentList);
   select.innerHTML = options.map(eq => `<option value="${escapeHtmlLL(eq)}">${escapeHtmlLL(eq)}</option>`).join('');
+  if (options.includes(prev)) select.value = prev;
+}
+
+// クラウドの設備マスタを取得してライン選択肢に反映する（失敗しても既存の選択肢のまま）
+async function loadEquipmentOptions() {
+  if (!getGasUrl()) return;
+  try {
+    const res = await gasRequest({ action: 'getMasters' });
+    if (res && res.status === 'ok' && Array.isArray(res.equipments) && res.equipments.length > 0) {
+      lineEquipmentList = res.equipments;
+      renderLineOptions();
+    }
+  } catch (e) {}
 }
 
 /* ---------- クラウド通信 ---------- */

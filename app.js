@@ -108,7 +108,7 @@ window.onload = function () {
   equipmentSelect.addEventListener('change', (e) => setEquipment(e.target.value));
   equipmentSelectMonitor.addEventListener('change', (e) => setEquipment(e.target.value));
   const savedEquip = localStorage.getItem('pm_last_equipment_v1');
-  if (savedEquip && settings.equipmentList.includes(savedEquip)) setEquipment(savedEquip, true);
+  if (savedEquip && getEquipmentList().includes(savedEquip)) setEquipment(savedEquip, true);
 
   // 作業員4窓はタップで名前の一覧（ボタン）から選ぶ方式（キーボードを出さないため）。
   // マスタに一致しない名前（手入力）は枠を赤くする（保存はブロックしない弱い警告）
@@ -265,23 +265,34 @@ function renderMasterStatus() {
   }
 }
 
+// 設備名の一覧。クラウドの「設備マスタ」を使い、未取得（空）の間だけ端末の予備リストを使う。
+// 製造中・就業中の設備がマスタから消えていても、その間は選択肢に残す（途中で設備名が変わらないように）。
+function getEquipmentList() {
+  const list = (Array.isArray(masters.equipments) && masters.equipments.length > 0)
+    ? masters.equipments.slice() : settings.equipmentList.slice();
+  const inUse = (state.isShiftActive || (typeof workSession !== 'undefined' && workSession)) ? equipmentSelect.value : '';
+  if (inUse && !list.includes(inUse)) list.unshift(inUse);
+  return list;
+}
+
 function renderEquipmentOptions() {
   const current = equipmentSelect.value;
-  const html = settings.equipmentList.map(eq => `<option value="${escapeHtml(eq)}">${escapeHtml(eq)}</option>`).join('');
+  const list = getEquipmentList();
+  const html = list.map(eq => `<option value="${escapeHtml(eq)}">${escapeHtml(eq)}</option>`).join('');
   equipmentSelect.innerHTML = html;
   equipmentSelectMonitor.innerHTML = html;
-  const next = settings.equipmentList.includes(current) ? current : (settings.equipmentList[0] || '');
+  const next = list.includes(current) ? current : (list[0] || '');
   equipmentSelect.value = next;
   equipmentSelectMonitor.value = next;
 }
 
 function currentEquipmentName() {
-  return equipmentSelect.value || settings.equipmentList[0] || '';
+  return equipmentSelect.value || getEquipmentList()[0] || '';
 }
 
 // 設備を切り替える（モニター画面・日報画面の両方に反映し、部品番号の候補も絞り込み直す）
 function setEquipment(value, silent) {
-  if (!settings.equipmentList.includes(value)) return;
+  if (!getEquipmentList().includes(value)) return;
   equipmentSelect.value = value;
   equipmentSelectMonitor.value = value;
   try { localStorage.setItem('pm_last_equipment_v1', value); } catch (e) {}
@@ -314,22 +325,17 @@ function openSettingsModal() {
 }
 function closeSettingsModal() { hideModal('settings-modal'); }
 
+// 設備名はクラウドの「設備マスタ」で管理するため、設定画面では一覧の表示のみ
 function renderSettingsEquipmentList() {
   const box = document.getElementById('settings-equipment-list');
-  box.innerHTML = settings.equipmentList.map((eq, idx) => `
-    <div class="flex gap-1.5 items-center">
-      <input type="text" value="${escapeHtml(eq)}" data-idx="${idx}" onchange="updateEquipmentField(this)" class="field flex-1 p-1.5 text-xs">
-      <button onclick="removeEquipmentRow(${idx})" class="text-rose-400 hover:text-rose-300 w-7 h-7 flex items-center justify-center"><i class="fa-solid fa-trash-can text-xs"></i></button>
-    </div>`).join('') || '<p class="text-[10px] text-slate-500">設備が登録されていません</p>';
+  box.innerHTML = getEquipmentList().map(eq =>
+    `<div class="bg-black/30 border border-line rounded-lg px-2.5 py-1.5 text-xs text-slate-200">${escapeHtml(eq)}</div>`
+  ).join('') || '<p class="text-[10px] text-slate-500">設備が登録されていません</p>';
 }
-function updateEquipmentField(el) { settings.equipmentList[parseInt(el.dataset.idx)] = el.value.trim(); }
-function addEquipmentRow() { settings.equipmentList.push('新規設備'); renderSettingsEquipmentList(); }
-function removeEquipmentRow(idx) { settings.equipmentList.splice(idx, 1); renderSettingsEquipmentList(); }
 
 function saveSettings() {
   settings.gasUrl = document.getElementById('settings-gas-url').value.trim();
   settings.defaultEmail = document.getElementById('settings-default-email').value.trim();
-  settings.equipmentList = settings.equipmentList.filter(e => e);
   persistSettings();
   applySettingsToUI();
   renderEquipmentOptions();
@@ -749,7 +755,7 @@ function restoreShiftState() {
   } : null;
   state.defectCount = Math.max(0, parseInt(snap.defectCount) || 0);
 
-  if (snap.equipment && settings.equipmentList.includes(snap.equipment)) setEquipment(snap.equipment, true);
+  if (snap.equipment && getEquipmentList().includes(snap.equipment)) setEquipment(snap.equipment, true);
   if (Array.isArray(snap.operatorSlots)) {
     opSlotInputs.forEach((input, idx) => { input.value = snap.operatorSlots[idx] || ''; validateOperatorSlot(input); });
   }
@@ -983,7 +989,7 @@ function saveCurrentToHistory(finalCount, materialCount, scrapCount, defectCount
     // 就業時間との紐づけ。始業を記録していない場合は就業IDが空、勤務日は日報の日付と同じ
     sessionId: workSession ? workSession.id : '',
     workDate: workSession ? fmtDateSlash(new Date(workSession.start)) : dateStr,
-    equipment: equipmentSelect.value || settings.equipmentList[0] || '未設定',
+    equipment: currentEquipmentName() || '未設定',
     operator: getSelectedOperatorsText(),
     workerCount: getSelectedOperatorsCount(),
     partNo: state.partNo || partNoSelect.value || '未設定',

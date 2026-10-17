@@ -126,7 +126,7 @@ function restoreWorkSession() {
     const raw = localStorage.getItem(STORAGE.SESSION_HISTORY);
     if (raw) sessionHistory = JSON.parse(raw) || [];
   } catch (e) {}
-  if (workSession && workSession.equipment && settings.equipmentList.includes(workSession.equipment)) {
+  if (workSession && workSession.equipment && getEquipmentList().includes(workSession.equipment)) {
     setEquipment(workSession.equipment, true);
   }
   renderSessionUI();

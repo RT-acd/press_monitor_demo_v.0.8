@@ -141,11 +141,14 @@ async function fetchMastersFromCloud(showFeedback) {
       masters.partMasters = Array.isArray(res.partMasters) ? res.partMasters : [];
       masters.operators = Array.isArray(res.operators) ? res.operators : [];
       masters.stopReasons = Array.isArray(res.stopReasons) ? res.stopReasons : masters.stopReasons;
+      // 設備（古いGAS＝equipmentsを返さない場合は、手元の値をそのまま使う）
+      if (Array.isArray(res.equipments) && res.equipments.length > 0) masters.equipments = res.equipments;
       // 勤務区分（古いGAS＝shiftTypesを返さない場合は、手元の値をそのまま使う）
       if (Array.isArray(res.shiftTypes) && res.shiftTypes.length > 0) masters.shiftTypes = res.shiftTypes;
       if (Number(res.forgotConfirmHours) > 0) masters.forgotConfirmHours = Number(res.forgotConfirmHours);
       masters.lastSyncedAt = new Date().toISOString();
       persistMasters();
+      renderEquipmentOptions();
       renderPartOptions();
       renderOperatorDatalist();
       renderStopReasonOptions();
@@ -169,7 +172,7 @@ async function sendSelectedReport() {
   const email = reportEmailInput.value.trim() || settings.defaultEmail;
   if (!email) { showToast('送信先メールアドレスを入力してください', true); return; }
 
-  const currentEquip = equipmentSelect.value || settings.equipmentList[0] || '未設定';
+  const currentEquip = currentEquipmentName() || '未設定';
   showToast('メールを送信しています…');
 
   try {

@@ -19,6 +19,7 @@ const PART_MASTER_SHEET = '品番マスタ';
 const OPERATOR_MASTER_SHEET = '作業員マスタ';
 const STOP_REASON_MASTER_SHEET = '停止理由マスタ';
 const SHIFT_TYPE_MASTER_SHEET = '勤務区分マスタ';
+const EQUIPMENT_MASTER_SHEET = '設備マスタ';
 const WORK_SESSION_SHEET_NAME = '就業時間データ';
 
 /**
@@ -286,6 +287,7 @@ function handleGetMasters() {
     partMasters: readPartMasterSheet(),
     operators: readOperatorMasterSheet(),
     stopReasons: readStopReasonMasterSheet(),
+    equipments: readEquipmentMasterSheet(),
     shiftTypes: readShiftTypeMasterSheet(),
     forgotConfirmHours: readForgotConfirmHours_(),
   });
@@ -319,6 +321,31 @@ function normalizeHm_(v) {
   const m = String(v == null ? '' : v).trim().replace(/：/g, ':').match(/^(\d{1,2}):(\d{2})/);
   if (!m) return '';
   return ('0' + m[1]).slice(-2) + ':' + m[2];
+}
+
+/**
+ * 設備マスタ：A列に設備名を1行1設備で並べる（1行目は見出し）。並び順がそのままiPadの選択順になる。
+ * 管理者がスプレッドシートを直接編集する。シートが無ければ初期の設備名で自動作成する。
+ */
+const EQUIPMENT_SEEDS = ['1軸100tプレス', '2軸200tプレス', '高速300tプレス', 'Aライン プレス機', 'Bライン プレス機'];
+function readEquipmentMasterSheet() {
+  const ss = getMasterSpreadsheet_();
+  let sheet = ss.getSheetByName(EQUIPMENT_MASTER_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(EQUIPMENT_MASTER_SHEET);
+    sheet.appendRow(['設備名']);
+    EQUIPMENT_SEEDS.forEach(n => sheet.appendRow([n]));
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, 1).setFontWeight('bold').setBackground('#1a2233').setFontColor('#ffffff');
+    sheet.setColumnWidth(1, 220);
+  }
+  const data = sheet.getDataRange().getDisplayValues();
+  const result = [];
+  for (let i = 1; i < data.length; i++) {
+    const name = String(data[i][0] || '').trim();
+    if (name && result.indexOf(name) < 0) result.push(name);
+  }
+  return result;
 }
 
 function getOrCreateShiftTypeSheet_() {
@@ -771,7 +798,8 @@ function buildDashboards() {
   const reportRows = readReportRows_(ss);
   const segmentRows = readSegmentRows_(ss);
   const abnormalStopRows = readAbnormalStopEventRows_(ss);
-  const equipmentList = uniqueValues_(reportRows.map(r => r.equipment)).sort();
+  // 設備マスタに登録済みの設備は、まだ日報が無くてもタブ・選択肢に出す
+  const equipmentList = uniqueValues_(reportRows.map(r => r.equipment).concat(readEquipmentMasterSheet())).sort();
   const partList = uniqueValues_(reportRows.map(r => r.partNo)).sort();
 
   // 前回選んでいた設備・品番フィルタを可能な範囲で引き継ぐ

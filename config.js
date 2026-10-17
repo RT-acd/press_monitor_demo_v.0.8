@@ -28,7 +28,7 @@ const CONFIG = {
 const DEFAULT_SETTINGS = {
   gasUrl: '',
   defaultEmail: 'factory-report@example.com',
-  // 設備名リストは端末側で管理（品番・作業員のようにクラウド化していません）
+  // 設備名はクラウドの「設備マスタ」で管理する。以下はクラウド未接続・未取得のときだけ使う予備の値
   equipmentList: ['1軸100tプレス', '2軸200tプレス', '高速300tプレス', 'Aライン プレス機', 'Bライン プレス機'],
 };
 
@@ -39,6 +39,7 @@ const DEFAULT_MASTERS = {
     { part: 'SP-210', spm: 18.0, process: '', machine: '' },
   ],
   operators: ['山田', '佐藤', '鈴木', '田中'],
+  equipments: [], // 設備名（クラウドの「設備マスタ」から取得。空の間は DEFAULT_SETTINGS.equipmentList を使う）
   stopReasons: ['なし', '段取り替え', '材料待ち', '品質確認・不良対応', '設備トラブル', '人員不足・応援待ち', '朝礼・清掃・保全', 'その他'],
   // 勤務区分（クラウド未接続時のフォールバック。クラウドの「勤務区分マスタ」シートで編集する）
   shiftTypes: [

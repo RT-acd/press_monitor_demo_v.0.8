@@ -544,9 +544,9 @@ tailwind.config = {
 
     <div class="mb-5">
       <div class="flex justify-between items-center mb-2">
-        <p class="text-xs font-black text-slate-300 flex items-center gap-1.5"><i class="fa-solid fa-gears text-emerald-400"></i>設備名リスト（この端末のみで管理）</p>
-        <button onclick="addEquipmentRow()" class="text-[10px] text-emerald-400 font-bold"><i class="fa-solid fa-plus mr-1"></i>追加</button>
+        <p class="text-xs font-black text-slate-300 flex items-center gap-1.5"><i class="fa-solid fa-gears text-emerald-400"></i>設備名リスト（クラウドの設備マスタ）</p>
       </div>
+      <p class="text-[10px] text-slate-500 mb-1.5 leading-relaxed">設備の追加・名称変更は、スプレッドシートの「設備マスタ」シートで行います（A列に1行1設備）。上の「マスタを再取得」で反映されます。</p>
       <div id="settings-equipment-list" class="flex flex-col gap-1.5 max-h-[140px] overflow-y-auto pr-1"></div>
     </div>
 
