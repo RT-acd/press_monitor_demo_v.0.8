@@ -50,6 +50,12 @@ tailwind.config = {
         <i class="fa-solid fa-gears text-emerald-400 text-[11px]"></i>
         <select id="equipment-select-monitor" class="bg-transparent border-none text-emerald-400 font-black text-xs sm:text-sm max-w-[150px] truncate"></select>
       </div>
+      <div id="session-box" class="bg-black/30 border border-line rounded-xl pl-2 pr-1 py-1 flex items-center gap-1.5">
+        <button id="session-label" onclick="openSessionEditModal()" class="hidden items-center gap-1 text-[11px] font-black text-amber-300 font-mono whitespace-nowrap active:scale-95">
+          <i class="fa-solid fa-user-clock text-[10px]"></i><span id="session-label-text"></span>
+        </button>
+        <button id="session-btn" onclick="onSessionButton()"></button>
+      </div>
     </div>
 
     <div class="flex items-center gap-2.5 bg-black/30 px-3.5 py-1.5 rounded-2xl border border-line">
@@ -303,6 +309,66 @@ tailwind.config = {
 
 <!-- ============ モーダル群 ============ -->
 
+<!-- 始業の記録／修正 -->
+<div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center opacity-0 pointer-events-none modal-mask" id="session-modal">
+  <div class="bg-panel border-2 border-line w-[94%] max-w-[520px] p-4 rounded-2xl shadow-2xl text-left scale-95 modal-card max-h-[94vh] overflow-y-auto">
+    <h3 class="text-base font-black text-emerald-400 flex items-center gap-2 mb-2"><i class="fa-solid fa-sun"></i><span id="session-modal-title">始業を記録</span></h3>
+    <p class="text-[11px] text-slate-400 mb-1.5 font-bold">勤務区分（現在時刻から自動で選択しています。違う場合は選び直してください）</p>
+    <div id="session-shift-list" class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3"></div>
+    <label class="text-[11px] text-slate-400 font-bold block mb-1">始業時刻</label>
+    <input type="datetime-local" id="session-time-input" class="field w-full p-2.5 text-base font-mono">
+    <p id="session-error" class="text-[11px] text-rose-400 font-bold mt-1.5 min-h-[14px]"></p>
+    <div class="grid grid-cols-2 gap-2 mt-2">
+      <button onclick="closeSessionModal()" class="bg-panel2 hover:bg-slate-700 text-slate-300 py-2.5 rounded-xl font-bold text-xs">キャンセル</button>
+      <button id="session-ok-btn" onclick="confirmSessionModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl font-black text-xs shadow-lg">始業する</button>
+    </div>
+    <button id="session-cancel-record-btn" onclick="cancelSessionRecord()" class="hidden w-full mt-2 bg-panel2 hover:bg-slate-700 text-rose-300 py-2 rounded-xl font-bold text-[11px]"></button>
+  </div>
+</div>
+
+<!-- 製造開始時：始業が未記録のときの確認 -->
+<div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center opacity-0 pointer-events-none modal-mask" id="session-prompt-modal">
+  <div class="bg-panel border-2 border-line w-[92%] max-w-[440px] p-5 rounded-2xl shadow-2xl text-center scale-95 modal-card">
+    <h3 class="text-lg font-black text-emerald-400 flex items-center justify-center gap-2 mb-2"><i class="fa-solid fa-sun"></i><span>始業を記録しますか？</span></h3>
+    <p class="text-xs text-slate-300 leading-relaxed mb-4">始業がまだ記録されていません。<br>就業時間の集計のため、始業を記録してから製造を開始できます。</p>
+    <div class="grid grid-cols-1 gap-2">
+      <button onclick="sessionPromptNow()" class="bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-black text-sm shadow-lg"><i class="fa-solid fa-bolt mr-1.5"></i>今すぐ始業</button>
+      <button onclick="sessionPromptSpecify()" class="bg-panel2 hover:bg-slate-700 text-slate-100 border border-line py-2.5 rounded-xl font-bold text-xs"><i class="fa-solid fa-clock mr-1.5"></i>時刻を指定</button>
+      <button onclick="sessionPromptSkip()" class="bg-panel2 hover:bg-slate-700 text-slate-300 border border-line py-2.5 rounded-xl font-bold text-xs">記録しない（そのまま製造開始）</button>
+      <button onclick="sessionPromptCancel()" class="text-slate-500 hover:text-slate-300 py-1.5 font-bold text-[11px]">キャンセル（製造開始しない）</button>
+    </div>
+  </div>
+</div>
+
+<!-- 終業の記録／押し忘れ補正 -->
+<div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center opacity-0 pointer-events-none modal-mask" id="session-end-modal">
+  <div class="bg-panel border-2 border-line w-[94%] max-w-[480px] p-4 rounded-2xl shadow-2xl text-left scale-95 modal-card max-h-[94vh] overflow-y-auto">
+    <h3 class="text-base font-black text-rose-400 flex items-center gap-2 mb-1.5"><i class="fa-solid fa-flag-checkered"></i><span id="session-end-title">終業を記録</span></h3>
+    <p id="session-end-lead" class="text-[11px] text-slate-300 leading-relaxed mb-2"></p>
+    <div class="bg-black/30 border border-line rounded-xl px-3 py-2 mb-2 text-xs">
+      <span class="text-slate-400 text-[10px] block">始業</span><span id="session-end-start" class="font-mono font-bold text-amber-300"></span>
+    </div>
+    <label class="text-[11px] text-slate-400 font-bold block mb-1">終業時刻</label>
+    <input type="datetime-local" id="session-end-input" oninput="updateSessionEndPreview()" class="field w-full p-2.5 text-base font-mono">
+    <p id="session-end-hint" class="text-[10px] text-slate-500 mt-1 leading-tight"></p>
+    <div id="session-end-preview" class="text-xs mt-2 min-h-[18px]"></div>
+    <p id="session-end-error" class="text-[11px] text-rose-400 font-bold mt-1 min-h-[14px]"></p>
+    <div class="grid grid-cols-2 gap-2 mt-2">
+      <button id="session-end-later-btn" onclick="closeSessionEndModal()" class="bg-panel2 hover:bg-slate-700 text-slate-300 py-2.5 rounded-xl font-bold text-xs">キャンセル</button>
+      <button id="session-end-ok-btn" onclick="confirmSessionEnd()" class="bg-rose-600 hover:bg-rose-500 text-white py-2.5 rounded-xl font-black text-xs shadow-lg">終業する</button>
+    </div>
+  </div>
+</div>
+
+<!-- 製造中は終業できない -->
+<div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center opacity-0 pointer-events-none modal-mask" id="session-block-modal">
+  <div class="bg-panel border-2 border-line w-[90%] max-w-[400px] p-5 rounded-2xl shadow-2xl text-center scale-95 modal-card">
+    <h3 class="text-lg font-black text-amber-450 flex items-center justify-center gap-2 mb-2"><i class="fa-solid fa-triangle-exclamation"></i><span>先に製造終了を押してください</span></h3>
+    <p class="text-xs text-slate-300 leading-relaxed mb-4">製造中のため、終業を記録できません。<br>「製造終了」で日報を保存してから、終業を押してください。</p>
+    <button onclick="hideModal('session-block-modal')" class="w-full bg-panel2 hover:bg-slate-700 text-slate-100 py-2.5 rounded-xl font-bold text-xs">わかりました</button>
+  </div>
+</div>
+
 <!-- クリア確認 -->
 <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center opacity-0 pointer-events-none modal-mask" id="reset-modal">
   <div class="bg-panel border-2 border-line w-[90%] max-w-[420px] p-6 rounded-2xl shadow-2xl text-center scale-95 modal-card">
@@ -498,6 +564,7 @@ tailwind.config = {
 
 <script src="config.js"></script>
 <script src="cloud.js"></script>
+<script src="session.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

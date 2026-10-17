@@ -18,6 +18,8 @@ const ABNORMAL_STOP_SHEET_NAME = '異常停止イベントデータ';
 const PART_MASTER_SHEET = '品番マスタ';
 const OPERATOR_MASTER_SHEET = '作業員マスタ';
 const STOP_REASON_MASTER_SHEET = '停止理由マスタ';
+const SHIFT_TYPE_MASTER_SHEET = '勤務区分マスタ';
+const WORK_SESSION_SHEET_NAME = '就業時間データ';
 
 /**
  * スプレッドシート3分割構成（マスタデータ／日報の全体データ／ライン長向けデータ）
@@ -56,6 +58,7 @@ const HEADER_ROW = [
   '製造開始時間', '製造終了時間', '設定SPM', '生産数(pcs)', '材料交換(回)', 'スクラップ交換(回)',
   '停止理由', '稼働時間(秒)', '金型交換時間(秒)', '計画停止時間(秒)', '異常停止時間(秒)', '性能稼働率(%)',
   '停止理由カテゴリ', '異常停止件数', '不良数(pcs)',
+  '就業ID', '勤務日',
 ];
 
 /* =========================================================
@@ -85,6 +88,8 @@ function doPost(e) {
         return handleUploadOperatorMaster(payload.names);
       case 'uploadStopReasonMaster':
         return handleUploadStopReasonMaster(payload.reasons);
+      case 'saveWorkSession':
+        return handleSaveWorkSession(payload.session);
       case 'getLineLeaderData':
         return handleGetLineLeaderData(payload.equipment);
       default:
@@ -244,6 +249,8 @@ function recordToRow(rec) {
     rec.stopReasonCategory || 'なし',
     rec.abnormalStopCount != null ? rec.abnormalStopCount : (rec.abnormalStopEvents ? rec.abnormalStopEvents.length : 0),
     rec.defectCount || 0,
+    rec.sessionId || '',              // 就業ID（就業時間データとの紐づけ。始業を記録していない場合は空）
+    rec.workDate || rec.date || '',   // 勤務日（始業日。夜勤で日付をまたいでも同じ勤務日に集計するため）
   ];
 }
 
@@ -279,7 +286,148 @@ function handleGetMasters() {
     partMasters: readPartMasterSheet(),
     operators: readOperatorMasterSheet(),
     stopReasons: readStopReasonMasterSheet(),
+    shiftTypes: readShiftTypeMasterSheet(),
+    forgotConfirmHours: readForgotConfirmHours_(),
   });
+}
+
+
+/* =========================================================
+   就業時間（始業・終業）
+   ・勤務区分マスタ：管理者がスプレッドシートを直接編集する（管理ページからのアップロードは未対応）
+       A:区分名 B:定時始業 C:定時終業 D:休憩開始 E:休憩終了（休憩が無い区分は空欄）
+       G1:H1 に「押し忘れ確認までの時間」(時間)。定時終業からこの時間を過ぎても終業が未記録なら、
+       次回のアプリ起動時に終業時刻の補正を確認する。
+   ・就業時間データ：就業（始業〜終業）1回につき1行。設備ごと。就業IDで上書き保存（再送信しても重複しない）
+   ========================================================= */
+const FORGOT_CONFIRM_LABEL = '押し忘れ確認までの時間(時間)';
+const DEFAULT_FORGOT_CONFIRM_HOURS = 4;
+const SHIFT_TYPE_HEADER_ROW = ['区分名', '定時始業', '定時終業', '休憩開始', '休憩終了'];
+const SHIFT_TYPE_SEEDS = [
+  ['日勤(基本)', '08:00', '17:00', '12:00', '12:40'],
+  ['変則A', '06:00', '15:00', '', ''],
+  ['変則B', '13:00', '22:00', '', ''],
+];
+
+const WORK_SESSION_HEADER_ROW = [
+  '就業ID', '勤務日', '勤務区分', '設備名', '始業日時', '終業日時',
+  '就業時間(秒)', '所定時間(秒)', '残業時間(秒)', '早出時間(秒)', '規定休憩(分)', '記録種別',
+  '定時始業', '定時終業', '休憩開始', '休憩終了', '備考', '受信日時',
+];
+
+function normalizeHm_(v) {
+  const m = String(v == null ? '' : v).trim().replace(/：/g, ':').match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return '';
+  return ('0' + m[1]).slice(-2) + ':' + m[2];
+}
+
+function getOrCreateShiftTypeSheet_() {
+  const ss = getMasterSpreadsheet_();
+  let sheet = ss.getSheetByName(SHIFT_TYPE_MASTER_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHIFT_TYPE_MASTER_SHEET);
+    sheet.getRange(1, 1, 1, SHIFT_TYPE_HEADER_ROW.length).setValues([SHIFT_TYPE_HEADER_ROW]);
+    // 時刻が日時として自動変換されないよう、文字列(@)として書き込む
+    sheet.getRange(2, 2, 20, 4).setNumberFormat('@');
+    sheet.getRange(2, 1, SHIFT_TYPE_SEEDS.length, 5).setValues(SHIFT_TYPE_SEEDS);
+    sheet.getRange(1, 7, 1, 2).setValues([[FORGOT_CONFIRM_LABEL, DEFAULT_FORGOT_CONFIRM_HOURS]]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, SHIFT_TYPE_HEADER_ROW.length).setFontWeight('bold').setBackground('#1a2233').setFontColor('#ffffff');
+    sheet.getRange(1, 7).setFontWeight('bold');
+    sheet.setColumnWidth(7, 200);
+  }
+  return sheet;
+}
+
+function readShiftTypeMasterSheet() {
+  const sheet = getOrCreateShiftTypeSheet_();
+  const data = sheet.getDataRange().getDisplayValues(); // 表示されている文字列で読む（時刻セルの型変換を避ける）
+  const result = [];
+  for (let i = 1; i < data.length; i++) {
+    const name = String(data[i][0] || '').trim();
+    const start = normalizeHm_(data[i][1]);
+    const end = normalizeHm_(data[i][2]);
+    if (!name || !start || !end) continue;
+    result.push({
+      name: name,
+      start: start,
+      end: end,
+      breakStart: normalizeHm_(data[i][3]),
+      breakEnd: normalizeHm_(data[i][4]),
+    });
+  }
+  return result;
+}
+
+function readForgotConfirmHours_() {
+  const sheet = getOrCreateShiftTypeSheet_();
+  const v = Number(String(sheet.getRange(1, 8).getDisplayValue()).trim());
+  return (isFinite(v) && v > 0) ? v : DEFAULT_FORGOT_CONFIRM_HOURS;
+}
+
+function getOrCreateWorkSessionSheet_() {
+  const ss = getReportSpreadsheet_();
+  let sheet = ss.getSheetByName(WORK_SESSION_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(WORK_SESSION_SHEET_NAME);
+    sheet.appendRow(WORK_SESSION_HEADER_ROW);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, WORK_SESSION_HEADER_ROW.length).setFontWeight('bold').setBackground('#1a2233').setFontColor('#ffffff');
+  } else {
+    const currentLen = sheet.getLastColumn();
+    if (currentLen < WORK_SESSION_HEADER_ROW.length) {
+      const missing = WORK_SESSION_HEADER_ROW.slice(currentLen);
+      const range = sheet.getRange(1, currentLen + 1, 1, missing.length);
+      range.setValues([missing]);
+      range.setFontWeight('bold').setBackground('#1a2233').setFontColor('#ffffff');
+    }
+  }
+  return sheet;
+}
+
+function handleSaveWorkSession(s) {
+  if (!s || !s.id) return jsonResponse({ status: 'error', message: 'session がありません' });
+  if (!s.start || !s.end) return jsonResponse({ status: 'error', message: '始業・終業の日時がありません' });
+
+  const sheet = getOrCreateWorkSessionSheet_();
+
+  // 同じ就業IDの既存行があれば削除してから追記する（再送信・補正に対応）
+  const last = sheet.getLastRow();
+  if (last >= 2) {
+    const ids = sheet.getRange(2, 1, last - 1, 1).getValues();
+    for (let i = ids.length - 1; i >= 0; i--) {
+      if (String(ids[i][0]) === String(s.id)) sheet.deleteRow(i + 2);
+    }
+  }
+
+  const row = [
+    String(s.id),
+    s.workDate || '',
+    s.shiftType || '',
+    s.equipment || '',
+    s.start,
+    s.end,
+    Number(s.workSec) || 0,
+    Number(s.plannedSec) || 0,
+    Number(s.overtimeSec) || 0,
+    Number(s.earlySec) || 0,
+    Number(s.breakMin) || 0,
+    s.kind || '実績',
+    s.plannedStart || '',
+    s.plannedEnd || '',
+    s.breakStart || '',
+    s.breakEnd || '',
+    s.note || '',
+    new Date(),
+  ];
+  const newRow = sheet.getLastRow() + 1;
+  // 時刻の列は文字列のまま（日時への自動変換を防ぐ）
+  sheet.getRange(newRow, 13, 1, 4).setNumberFormat('@');
+  sheet.getRange(newRow, 1, 1, row.length).setValues([row]);
+  sheet.getRange(newRow, 2).setNumberFormat('yyyy/MM/dd');
+  sheet.getRange(newRow, 5, 1, 2).setNumberFormat('yyyy/MM/dd HH:mm:ss');
+
+  return jsonResponse({ status: 'ok', id: s.id });
 }
 
 /**

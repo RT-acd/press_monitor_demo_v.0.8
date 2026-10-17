@@ -127,8 +127,12 @@ window.onload = function () {
   restoreShiftState();
   // 製造中の復元がない場合は、前回選択した作業員を自動入力する
   if (!state.isShiftActive) restoreLastOperators();
+  // 就業中（始業済み・終業前）の復元。設備も始業時のものに戻す
+  restoreWorkSession();
   updateEquipmentLock();
   updateDefectUI();
+  // 終業の押し忘れ確認（定時終業＋設定時間を過ぎても終業が未記録の場合）
+  checkForgottenSession();
 
   lastTickTime = Date.now();
   setInterval(updateClock, 1000);
@@ -286,12 +290,15 @@ function setEquipment(value, silent) {
   if (!silent) showToast(`設備を「${value}」に切り替えました`);
 }
 
-// 製造中は設備の切り替えを禁止する（日報の設備名が途中で変わるのを防ぐため）
+// 製造中・就業中（始業〜終業の間）は設備の切り替えを禁止する（日報の設備名が途中で変わるのを防ぐため）
 function updateEquipmentLock() {
-  const locked = !!state.isShiftActive;
+  const locked = !!state.isShiftActive || !!workSession;
+  const msg = state.isShiftActive
+    ? '製造中は設備を切り替えられません（製造終了またはクリア後に変更できます）'
+    : '就業中は設備を切り替えられません（終業後に変更できます）';
   [equipmentSelect, equipmentSelectMonitor].forEach(sel => {
     sel.disabled = locked;
-    sel.title = locked ? '製造中は設備を切り替えられません（製造終了またはクリア後に変更できます）' : '';
+    sel.title = locked ? msg : '設備の切り替え';
     sel.classList.toggle('opacity-50', locked);
   });
 }
@@ -782,8 +789,10 @@ function restoreShiftState() {
 /* =========================================================
    製造開始 / 終了
    ========================================================= */
-function startMfg() {
+function startMfg(skipSessionPrompt) {
   if (state.isShiftActive) return;
+  // 始業が未記録なら、先に「始業を記録しますか？」を確認する
+  if (skipSessionPrompt !== true && !workSession) { openSessionPrompt(); return; }
   state.isShiftActive = true;
   state.startTime = new Date();
   lastTickTime = Date.now();
@@ -849,6 +858,7 @@ function confirmEndMfg() {
 
   closeEndShiftModal();
   saveCurrentToHistory(actualCount, materialCount, scrapCount, defectCount);
+  noteMfgEndForSession(state.endTime); // 押し忘れ補正の初期値（就業中の最後の製造終了）に使う
   executeResetSilently();
 }
 
@@ -970,6 +980,9 @@ function saveCurrentToHistory(finalCount, materialCount, scrapCount, defectCount
   const record = {
     id: Date.now(),
     date: dateStr,
+    // 就業時間との紐づけ。始業を記録していない場合は就業IDが空、勤務日は日報の日付と同じ
+    sessionId: workSession ? workSession.id : '',
+    workDate: workSession ? fmtDateSlash(new Date(workSession.start)) : dateStr,
     equipment: equipmentSelect.value || settings.equipmentList[0] || '未設定',
     operator: getSelectedOperatorsText(),
     workerCount: getSelectedOperatorsCount(),

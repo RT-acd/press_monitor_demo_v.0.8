@@ -55,11 +55,36 @@ async function syncRecordToCloud(record) {
   updateCloudStatusChip();
 }
 
+/* ---------- 就業時間（終業1回分）のクラウド保存 ---------- */
+async function syncSessionToCloud(rec) {
+  if (!settings.gasUrl) { updateCloudStatusChip(); return; }
+  try {
+    const res = await gasRequest(settings.gasUrl, { action: 'saveWorkSession', session: rec });
+    rec.syncStatus = (res && res.status === 'ok') ? 'synced' : 'error';
+  } catch (e) {
+    rec.syncStatus = 'pending';
+  }
+  // 送信済みのものは件数が増えすぎないよう、直近20件だけ残す
+  const unsynced = sessionHistory.filter(r => r.syncStatus !== 'synced');
+  const synced = sessionHistory.filter(r => r.syncStatus === 'synced').slice(0, 20);
+  sessionHistory = sessionHistory.filter(r => unsynced.includes(r) || synced.includes(r));
+  persistSessionHistory();
+  updateSyncBadge();
+  updateCloudStatusChip();
+}
+
+async function retryPendingSessions() {
+  if (!settings.gasUrl) return;
+  const pending = sessionHistory.filter(r => r.syncStatus !== 'synced');
+  for (const rec of pending) await syncSessionToCloud(rec);
+}
+
 async function retryPendingSync(showFeedback) {
   if (!settings.gasUrl) {
     if (showFeedback) showToast('クラウドURLが未設定です。設定画面から入力してください', true);
     return;
   }
+  retryPendingSessions();
   const pending = historyLogs.filter(r => r.syncStatus !== 'synced');
   if (pending.length === 0) {
     if (showFeedback) showToast('未送信の日報はありません');
@@ -74,7 +99,7 @@ async function retryPendingSync(showFeedback) {
 }
 
 function updateSyncBadge() {
-  const pending = historyLogs.filter(r => r.syncStatus !== 'synced').length;
+  const pending = historyLogs.filter(r => r.syncStatus !== 'synced').length + pendingSessionCount();
   const badge = document.getElementById('sync-badge');
   document.getElementById('sync-badge-count').innerText = pending;
   if (pending > 0) { badge.classList.remove('hidden'); badge.classList.add('flex'); }
@@ -91,7 +116,7 @@ function updateCloudStatusChip() {
     text.className = 'text-slate-500';
     return;
   }
-  const pending = historyLogs.filter(r => r.syncStatus !== 'synced').length;
+  const pending = historyLogs.filter(r => r.syncStatus !== 'synced').length + pendingSessionCount();
   if (pending === 0) {
     icon.className = 'fa-solid fa-cloud-check sync-ok';
     text.innerText = 'クラウド同期済み';
@@ -116,6 +141,9 @@ async function fetchMastersFromCloud(showFeedback) {
       masters.partMasters = Array.isArray(res.partMasters) ? res.partMasters : [];
       masters.operators = Array.isArray(res.operators) ? res.operators : [];
       masters.stopReasons = Array.isArray(res.stopReasons) ? res.stopReasons : masters.stopReasons;
+      // 勤務区分（古いGAS＝shiftTypesを返さない場合は、手元の値をそのまま使う）
+      if (Array.isArray(res.shiftTypes) && res.shiftTypes.length > 0) masters.shiftTypes = res.shiftTypes;
+      if (Number(res.forgotConfirmHours) > 0) masters.forgotConfirmHours = Number(res.forgotConfirmHours);
       masters.lastSyncedAt = new Date().toISOString();
       persistMasters();
       renderPartOptions();
